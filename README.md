@@ -78,6 +78,9 @@ python manage.py runserver
 
 API base URL: `http://localhost:8000/api/v1/`
 
+OpenAPI schema: `http://localhost:8000/api/schema/`  
+Swagger UI: `http://localhost:8000/api/docs/`
+
 ### Run everything with Docker
 
 ```bash
@@ -247,12 +250,18 @@ Central access logic lives in `apps/customers/services/access.py`:
 
 DRF permission classes delegate to this service so list, detail, create, and bulk import share one rule set. `user_can_access_customer()` uses an `.exists()` lookup — never materializes the full accessible ID set into Python.
 
-**Interaction updates:** creator, calling agents, or field managers with customer access may update. Officers cannot edit another officer's interactions.
+**Interaction updates:** any user with customer access may update interactions for that customer (field officers on assigned customers, managers on subtree, calling agents on all). Aligns with the brief: officers update records for customers assigned to them.
+
+### Caching strategy
+
+- **Request-scoped:** `CustomerAccessService` and `ReportingTree` are reused within a single HTTP request via `RequestContextMiddleware` + context variables.
+- **Process-level:** `ReportingTree` is cached globally until hierarchy changes.
+- **Invalidation:** Django signals on `User` save/delete call `invalidate_reporting_tree_cache()` so bulk onboarding and admin edits never serve stale hierarchy.
 
 ### Performance choices
 
 - Customer list latest disposition via `Subquery` annotation (no N+1)
-- Hierarchy resolution loads all field users once per permission check, then traverses in memory
+- Hierarchy: one DB query per cache generation, BFS traversal in memory
 - Bulk interaction import batch-fetches customers/users and uses `bulk_create`
 - Bulk user import preloads existing emails in one query to avoid per-row existence checks
 
@@ -301,4 +310,3 @@ JWT via `djangorestframework-simplejwt` with a custom serializer using `email` i
 - Assignment history and reassignment workflow
 - Closure table or materialized path for deeper hierarchies
 - Celery-backed async bulk processing for very large CSV files
-- OpenAPI schema via drf-spectacular
