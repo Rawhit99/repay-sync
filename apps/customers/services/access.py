@@ -1,21 +1,20 @@
-from functools import lru_cache
-
 from django.db.models import QuerySet
 
 from apps.accounts.models import Team, User
-from apps.common.hierarchy import ReportingTree, get_reporting_tree
+from apps.common.hierarchy import get_reporting_tree
+from apps.common.request_context import get_request_access_service
 from apps.customers.models import Customer, CustomerAssignment
 
 
 class CustomerAccessService:
-    """Single-responsibility resolver for customer access (reuses hierarchy tree per instance)."""
+    """Resolves customer access for a user; reuses hierarchy tree within one instance."""
 
     __slots__ = ("_user", "_tree", "_officer_ids")
 
     def __init__(self, user: User):
         self._user = user
-        self._tree: ReportingTree | None = None
-        self._officer_ids: frozenset | None = None
+        self._tree = None
+        self._officer_ids = None
 
     @property
     def has_unrestricted_access(self) -> bool:
@@ -24,13 +23,10 @@ class CustomerAccessService:
     @property
     def officer_ids(self) -> frozenset:
         if self._officer_ids is None:
-            if self.has_unrestricted_access:
-                self._officer_ids = frozenset()
-            elif self._user.team != Team.FIELD:
+            if self.has_unrestricted_access or self._user.team != Team.FIELD:
                 self._officer_ids = frozenset()
             else:
-                if self._tree is None:
-                    self._tree = get_reporting_tree()
+                self._tree = get_reporting_tree()
                 self._officer_ids = self._tree.subordinate_officer_ids(self._user)
         return self._officer_ids
 
@@ -51,9 +47,13 @@ class CustomerAccessService:
             officer_id__in=self.officer_ids,
         ).exists()
 
+    def can_modify_customer_records(self, customer: Customer) -> bool:
+        """Field users may update records for customers they can access."""
+        return self.can_access(customer)
+
 
 def get_access_service(user: User) -> CustomerAccessService:
-    return CustomerAccessService(user)
+    return get_request_access_service(user)
 
 
 def has_unrestricted_customer_access(user: User) -> bool:

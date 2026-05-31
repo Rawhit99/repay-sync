@@ -21,7 +21,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "django_filters",
-    "apps.accounts",
+    "drf_spectacular",
+    "apps.accounts.apps.AccountsConfig",
     "apps.customers",
     "apps.interactions",
     "apps.audit",
@@ -35,6 +36,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "apps.common.middleware.RequestContextMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -127,6 +129,14 @@ REST_FRAMEWORK = {
     "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%SZ",
     "DATETIME_INPUT_FORMATS": ["%Y-%m-%dT%H:%M:%SZ", "iso-8601"],
     "EXCEPTION_HANDLER": "apps.common.exception_handler.repay_sync_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "RepaySync API",
+    "DESCRIPTION": "Unified collections backend for field and calling teams.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 from datetime import timedelta  # noqa: E402

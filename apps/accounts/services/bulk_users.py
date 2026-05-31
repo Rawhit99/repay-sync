@@ -7,6 +7,7 @@ from django.db.models.functions import Lower
 from apps.accounts.models import Role, Team, User
 from apps.common.csv_utils import BulkRowError, BulkUploadResult, parse_csv, strip_row, validate_columns
 from apps.common.exceptions import InvalidCSVError
+from apps.common.hierarchy import invalidate_reporting_tree_cache
 from apps.common.lookups import lookup_users_by_email
 from apps.common.validators import format_django_validation_error
 
@@ -142,5 +143,8 @@ def bulk_create_users_from_csv(file_content: bytes) -> BulkUploadResult:
             )
         except Exception as exc:
             result.errors.append(BulkRowError(row_num, str(exc), field="email", value=email).as_dict())
+
+    if result.has_created:
+        invalidate_reporting_tree_cache()
 
     return result

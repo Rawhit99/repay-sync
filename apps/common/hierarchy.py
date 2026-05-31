@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from threading import Lock
 from uuid import UUID
 
 from apps.accounts.models import MANAGER_ROLES, Role, Team, User
@@ -47,5 +48,66 @@ class ReportingTree:
         return frozenset(officer_ids)
 
 
+class ReportingTreeCache:
+    """Process-level cache with explicit invalidation when hierarchy changes."""
+
+    __slots__ = ("_lock", "_tree", "_version")
+
+    def __init__(self):
+        self._lock = Lock()
+        self._tree: ReportingTree | None = None
+        self._version = 0
+
+    @property
+    def version(self) -> int:
+        return self._version
+
+    def get(self) -> ReportingTree:
+        with self._lock:
+            if self._tree is None:
+                self._tree = ReportingTree.build()
+            return self._tree
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._version += 1
+            self._tree = None
+
+
+_tree_cache = ReportingTreeCache()
+
+
 def get_reporting_tree() -> ReportingTree:
-    return ReportingTree.build()
+    state = None
+    try:
+        from apps.common.request_context import get_request_state
+
+        state = get_request_state()
+    except ImportError:
+        pass
+
+    if state is not None:
+        cached = state.get("reporting_tree")
+        cached_version = state.get("reporting_tree_version")
+        if cached is not None and cached_version == _tree_cache.version:
+            return cached
+        tree = _tree_cache.get()
+        state["reporting_tree"] = tree
+        state["reporting_tree_version"] = _tree_cache.version
+        return tree
+
+    return _tree_cache.get()
+
+
+def invalidate_reporting_tree_cache() -> None:
+    _tree_cache.invalidate()
+    state = None
+    try:
+        from apps.common.request_context import get_request_state
+
+        state = get_request_state()
+    except ImportError:
+        pass
+    if state is not None:
+        state["reporting_tree"] = None
+        state["reporting_tree_version"] = None
