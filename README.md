@@ -186,6 +186,22 @@ CUST-001,officer1@example.com,PROMISE_TO_PAY,Customer agreed to pay,2026-05-28T1
 
 Supports partial success: valid rows are committed; invalid rows are reported with row numbers.
 
+## Error responses
+
+All API errors return a consistent envelope:
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_ACCESS_DENIED",
+    "message": "You do not have access to this customer.",
+    "details": {"customer_id": "..."}
+  }
+}
+```
+
+Common codes: `VALIDATION_ERROR`, `PERMISSION_DENIED`, `NOT_FOUND`, `CONFLICT`, `INVALID_CSV`, `INVALID_FILE`, `INVALID_DISPOSITION`.
+
 ## Running Tests
 
 ```bash

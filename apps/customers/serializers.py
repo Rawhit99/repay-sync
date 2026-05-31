@@ -3,6 +3,11 @@ from django.db import transaction
 from rest_framework import serializers
 
 from apps.accounts.models import Role, User
+from apps.common.exceptions import (
+    DuplicateResourceError,
+    UserNotFoundError,
+    ValidationFailedError,
+)
 from apps.customers.models import Customer, CustomerAssignment
 
 
@@ -38,23 +43,37 @@ class CustomerDetailSerializer(CustomerListSerializer):
 
 
 class CustomerCreateSerializer(serializers.ModelSerializer):
-    assigned_officer_email = serializers.EmailField(required=False, write_only=True)
+    assigned_officer_email = serializers.EmailField(required=False, write_only=True, allow_blank=True)
 
     class Meta:
         model = Customer
         fields = ("external_id", "name", "phone", "assigned_officer_email")
 
     def validate_external_id(self, value):
+        value = value.strip()
+        if not value:
+            raise ValidationFailedError("external_id cannot be blank.", details={"field": "external_id"})
         if Customer.objects.filter(external_id=value).exists():
-            raise serializers.ValidationError("Customer with this external_id already exists.")
+            raise DuplicateResourceError(
+                "Customer with this external_id already exists.",
+                details={"field": "external_id", "value": value},
+            )
         return value
 
     def validate_assigned_officer_email(self, value):
-        officer = User.objects.filter(email__iexact=value).only("role").first()
+        if not value:
+            return value
+        officer = User.objects.filter(email__iexact=value).only("role", "email").first()
         if officer is None:
-            raise serializers.ValidationError("Officer not found.")
+            raise UserNotFoundError(
+                "Assigned officer not found.",
+                details={"field": "assigned_officer_email", "value": value},
+            )
         if officer.role != Role.COLLECTION_OFFICER:
-            raise serializers.ValidationError("Assigned user must be a collection officer.")
+            raise ValidationFailedError(
+                "Assigned user must be a collection officer.",
+                details={"field": "assigned_officer_email", "role": officer.role},
+            )
         return value
 
     @transaction.atomic

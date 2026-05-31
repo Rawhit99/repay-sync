@@ -9,9 +9,9 @@ class AuditLogMixin:
     audit_resource_type = ""
 
     def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
         self._audit_resource_id = ""
-        self._audit_metadata: dict = {}
+        self._audit_metadata = {}
+        super().initial(request, *args, **kwargs)
 
     def set_audit(self, action: str | None = None, resource_id: str = "", **metadata):
         if action:

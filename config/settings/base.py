@@ -126,6 +126,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%SZ",
     "DATETIME_INPUT_FORMATS": ["%Y-%m-%dT%H:%M:%SZ", "iso-8601"],
+    "EXCEPTION_HANDLER": "apps.common.exception_handler.repay_sync_exception_handler",
 }
 
 from datetime import timedelta  # noqa: E402

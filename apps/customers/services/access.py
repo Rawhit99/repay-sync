@@ -1,69 +1,68 @@
-from collections import defaultdict, deque
+from functools import lru_cache
 
 from django.db.models import QuerySet
 
-from apps.accounts.models import MANAGER_ROLES, Role, Team, User
+from apps.accounts.models import Team, User
+from apps.common.hierarchy import ReportingTree, get_reporting_tree
 from apps.customers.models import Customer, CustomerAssignment
 
 
-def _build_reporting_tree() -> tuple[dict, dict]:
-    """Load field hierarchy into adjacency and role maps in a single query."""
-    rows = User.objects.filter(team=Team.FIELD, is_active=True).values_list(
-        "pk", "role", "reports_to_id"
-    )
-    children: dict = defaultdict(list)
-    roles: dict = {}
-    for pk, role, manager_id in rows:
-        roles[pk] = role
-        if manager_id:
-            children[manager_id].append(pk)
-    return children, roles
+class CustomerAccessService:
+    """Single-responsibility resolver for customer access (reuses hierarchy tree per instance)."""
+
+    __slots__ = ("_user", "_tree", "_officer_ids")
+
+    def __init__(self, user: User):
+        self._user = user
+        self._tree: ReportingTree | None = None
+        self._officer_ids: frozenset | None = None
+
+    @property
+    def has_unrestricted_access(self) -> bool:
+        return self._user.is_superuser or self._user.team == Team.CALLING
+
+    @property
+    def officer_ids(self) -> frozenset:
+        if self._officer_ids is None:
+            if self.has_unrestricted_access:
+                self._officer_ids = frozenset()
+            elif self._user.team != Team.FIELD:
+                self._officer_ids = frozenset()
+            else:
+                if self._tree is None:
+                    self._tree = get_reporting_tree()
+                self._officer_ids = self._tree.subordinate_officer_ids(self._user)
+        return self._officer_ids
+
+    def filter_customers(self, queryset: QuerySet[Customer]) -> QuerySet[Customer]:
+        if self.has_unrestricted_access:
+            return queryset
+        if not self.officer_ids:
+            return queryset.none()
+        return queryset.filter(assignments__officer_id__in=self.officer_ids).distinct()
+
+    def can_access(self, customer: Customer) -> bool:
+        if self.has_unrestricted_access:
+            return True
+        if not self.officer_ids:
+            return False
+        return CustomerAssignment.objects.filter(
+            customer_id=customer.pk,
+            officer_id__in=self.officer_ids,
+        ).exists()
 
 
-def get_subordinate_officer_ids(user: User) -> frozenset:
-    """Return IDs of collection officers in the user's reporting subtree."""
-    if user.team != Team.FIELD:
-        return frozenset()
-
-    if user.role == Role.COLLECTION_OFFICER:
-        return frozenset({user.pk})
-
-    children, roles = _build_reporting_tree()
-    officer_ids: set = set()
-    queue = deque(children.get(user.pk, []))
-
-    while queue:
-        uid = queue.popleft()
-        role = roles.get(uid)
-        if role == Role.COLLECTION_OFFICER:
-            officer_ids.add(uid)
-        elif role in MANAGER_ROLES:
-            queue.extend(children.get(uid, []))
-
-    return frozenset(officer_ids)
+def get_access_service(user: User) -> CustomerAccessService:
+    return CustomerAccessService(user)
 
 
 def has_unrestricted_customer_access(user: User) -> bool:
-    return user.is_superuser or user.team == Team.CALLING
+    return get_access_service(user).has_unrestricted_access
 
 
 def filter_customers_for_user(queryset: QuerySet[Customer], user: User) -> QuerySet[Customer]:
-    if has_unrestricted_customer_access(user):
-        return queryset
-
-    officer_ids = get_subordinate_officer_ids(user)
-    if not officer_ids:
-        return queryset.none()
-
-    return queryset.filter(assignments__officer_id__in=officer_ids).distinct()
+    return get_access_service(user).filter_customers(queryset)
 
 
 def user_can_access_customer(user: User, customer: Customer) -> bool:
-    if has_unrestricted_customer_access(user):
-        return True
-
-    officer_ids = get_subordinate_officer_ids(user)
-    return CustomerAssignment.objects.filter(
-        customer_id=customer.pk,
-        officer_id__in=officer_ids,
-    ).exists()
+    return get_access_service(user).can_access(customer)

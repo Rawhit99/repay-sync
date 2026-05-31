@@ -1,100 +1,105 @@
 import secrets
-from functools import reduce
-from operator import or_
+from dataclasses import dataclass, field
 
-from django.db.models import Q
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models.functions import Lower
 
 from apps.accounts.models import Role, Team, User
-from apps.common.csv_utils import BulkUploadResult, parse_csv, strip_row, validate_columns
+from apps.common.csv_utils import BulkRowError, BulkUploadResult, parse_csv, strip_row, validate_columns
+from apps.common.exceptions import InvalidCSVError
+from apps.common.lookups import lookup_users_by_email
+from apps.common.validators import format_django_validation_error
 
 
 REQUIRED_COLUMNS = frozenset({"email", "full_name", "team", "role", "manager_email"})
 MANAGER_ROLES_IN_CSV = frozenset({Role.MANAGER, Role.SENIOR_MANAGER})
 
 
-def _validate_row(row: dict, existing_emails: set[str], seen_emails: set[str]) -> str | None:
-    email = row["email"].lower()
-    if email in seen_emails:
-        return "duplicate email in CSV"
-    if email in existing_emails:
-        return f"user with email {row['email']} already exists"
+@dataclass(slots=True)
+class _UserRowValidator:
+    existing_emails: set[str]
+    seen_emails: set[str] = field(default_factory=set)
 
-    if not row["email"]:
-        return "email is required"
-    if not row["full_name"]:
-        return "full_name is required"
-    if row["team"] not in Team.values:
-        return f"invalid team: {row['team']}"
-    if row["role"] not in Role.values:
-        return f"invalid role: {row['role']}"
+    def validate(self, row: dict, row_num: int) -> BulkRowError | None:
+        email = row.get("email", "").lower()
 
-    if row["team"] == Team.CALLING:
-        if row["role"] != Role.CALLING_AGENT:
-            return "calling team users must have CALLING_AGENT role"
-        if row["manager_email"]:
-            return "calling team users must not have a manager"
+        if not row.get("email"):
+            return BulkRowError(row_num, "email is required", field="email")
+        if not row.get("full_name"):
+            return BulkRowError(row_num, "full_name is required", field="full_name")
+        if email in self.seen_emails:
+            return BulkRowError(row_num, "duplicate email in CSV", field="email", value=row["email"])
+        if email in self.existing_emails:
+            return BulkRowError(row_num, "user already exists", field="email", value=row["email"])
+
+        self.seen_emails.add(email)
+
+        if row["team"] not in Team.values:
+            return BulkRowError(row_num, f"invalid team '{row['team']}'", field="team", value=row["team"])
+        if row["role"] not in Role.values:
+            return BulkRowError(row_num, f"invalid role '{row['role']}'", field="role", value=row["role"])
+
+        if row["team"] == Team.CALLING:
+            if row["role"] != Role.CALLING_AGENT:
+                return BulkRowError(row_num, "calling team users must have CALLING_AGENT role", field="role")
+            if row.get("manager_email"):
+                return BulkRowError(row_num, "calling team users must not have a manager", field="manager_email")
+            return None
+
+        if row["role"] == Role.CALLING_AGENT:
+            return BulkRowError(row_num, "field team users cannot have CALLING_AGENT role", field="role")
+        if row["role"] == Role.COLLECTION_OFFICER and not row.get("manager_email"):
+            return BulkRowError(row_num, "collection officers must have manager_email", field="manager_email")
+        if row["role"] in MANAGER_ROLES_IN_CSV and row.get("manager_email"):
+            return BulkRowError(
+                row_num,
+                "top-level managers must not have manager_email in bulk upload",
+                field="manager_email",
+            )
         return None
-
-    if row["role"] == Role.CALLING_AGENT:
-        return "field team users cannot have CALLING_AGENT role"
-    if row["role"] == Role.COLLECTION_OFFICER and not row["manager_email"]:
-        return "collection officers must have manager_email"
-    if row["role"] in MANAGER_ROLES_IN_CSV and row["manager_email"]:
-        return "managers should not have manager_email in bulk upload (top-level managers)"
-    return None
 
 
 def _topological_sort(rows: list[dict]) -> list[dict]:
-    """Order rows so managers are created before their reports."""
-
     by_email = {row["email"].lower(): row for row in rows}
+    cache: dict[str, int] = {}
 
-    def depth(row: dict, cache: dict[str, int]) -> int:
+    def depth(row: dict) -> int:
         email = row["email"].lower()
         if email in cache:
             return cache[email]
-        manager_email = row["manager_email"].lower()
+        manager_email = row.get("manager_email", "").lower()
         if not manager_email:
             cache[email] = 0
         else:
             manager_row = by_email.get(manager_email)
-            cache[email] = depth(manager_row, cache) + 1 if manager_row else 1
+            cache[email] = depth(manager_row) + 1 if manager_row else 1
         return cache[email]
 
-    cache: dict[str, int] = {}
-    return sorted(rows, key=lambda row: depth(row, cache))
-
-
-def _lookup_users_by_email(emails: set[str]) -> dict[str, User]:
-    if not emails:
-        return {}
-    condition = reduce(or_, (Q(email__iexact=email) for email in emails), Q())
-    return {user.email.lower(): user for user in User.objects.filter(condition)}
+    return sorted(rows, key=depth)
 
 
 def bulk_create_users_from_csv(file_content: bytes) -> BulkUploadResult:
     result = BulkUploadResult()
-    fieldnames, reader = parse_csv(file_content)
 
-    column_error = validate_columns(fieldnames, REQUIRED_COLUMNS)
-    if column_error:
-        result.errors.append({"row": 0, "message": column_error})
+    try:
+        fieldnames, reader = parse_csv(file_content)
+        validate_columns(fieldnames, REQUIRED_COLUMNS)
+    except InvalidCSVError as exc:
+        result.errors.append({"row": 0, "message": str(exc.detail), "code": exc.error_code})
         return result
 
-    existing_emails = set(User.objects.annotate(lower_email=Lower("email")).values_list("lower_email", flat=True))
+    validator = _UserRowValidator(
+        existing_emails=set(User.objects.annotate(lower_email=Lower("email")).values_list("lower_email", flat=True))
+    )
     pending: list[tuple[int, dict]] = []
-    seen_emails: set[str] = set()
 
     for row_num, raw_row in enumerate(reader, start=2):
         row = strip_row(raw_row)
         row["team"] = row.get("team", "").upper()
         row["role"] = row.get("role", "").upper()
-        error = _validate_row(row, existing_emails, seen_emails)
-        seen_emails.add(row["email"].lower())
-
+        error = validator.validate(row, row_num)
         if error:
-            result.errors.append({"row": row_num, "email": row.get("email", ""), "message": error})
+            result.errors.append(error.as_dict())
         else:
             pending.append((row_num, row))
 
@@ -104,16 +109,16 @@ def bulk_create_users_from_csv(file_content: bytes) -> BulkUploadResult:
     for row in _topological_sort([row for _, row in pending]):
         row_num = row_num_map[row["email"].lower()]
         email = row["email"]
-        manager_email = row["manager_email"]
+        manager_email = row.get("manager_email", "")
 
         manager = None
         if manager_email:
             manager = created_in_batch.get(manager_email.lower())
             if manager is None:
-                manager = _lookup_users_by_email({manager_email}).get(manager_email.lower())
+                manager = lookup_users_by_email({manager_email}).get(manager_email.lower())
             if manager is None:
                 result.errors.append(
-                    {"row": row_num, "email": email, "message": f"manager not found: {manager_email}"}
+                    BulkRowError(row_num, f"manager not found: {manager_email}", field="manager_email", value=manager_email).as_dict()
                 )
                 continue
 
@@ -131,7 +136,11 @@ def bulk_create_users_from_csv(file_content: bytes) -> BulkUploadResult:
             user.save()
             created_in_batch[email.lower()] = user
             result.created.append({"row": row_num, "email": email, "password": password, "id": str(user.pk)})
+        except DjangoValidationError as exc:
+            result.errors.append(
+                BulkRowError(row_num, format_django_validation_error(exc), field="email", value=email).as_dict()
+            )
         except Exception as exc:
-            result.errors.append({"row": row_num, "email": email, "message": str(exc)})
+            result.errors.append(BulkRowError(row_num, str(exc), field="email", value=email).as_dict())
 
     return result

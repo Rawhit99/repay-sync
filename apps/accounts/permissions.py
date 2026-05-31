@@ -1,24 +1,24 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 from apps.accounts.models import MANAGER_ROLES, Team
-from apps.customers.services.access import has_unrestricted_customer_access, user_can_access_customer
+from apps.customers.services.access import get_access_service
 
 
 class CanAccessCustomer(BasePermission):
     message = "You do not have access to this customer."
 
     def has_object_permission(self, request, view, obj):
-        return user_can_access_customer(request.user, obj)
+        return get_access_service(request.user).can_access(obj)
 
 
 class CanCreateCustomer(BasePermission):
-    message = "You do not have permission to create customers."
+    message = "Only managers or calling team members may create customers."
 
     def has_permission(self, request, view):
         if request.method != "POST":
             return True
         user = request.user
-        return has_unrestricted_customer_access(user) or user.role in MANAGER_ROLES
+        return get_access_service(user).has_unrestricted_access or user.role in MANAGER_ROLES
 
 
 class CanModifyInteraction(BasePermission):
@@ -26,18 +26,18 @@ class CanModifyInteraction(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         user = request.user
-        if request.method in SAFE_METHODS:
-            return user_can_access_customer(user, obj.customer)
+        access = get_access_service(user)
 
-        if obj.created_by_id == user.pk or has_unrestricted_customer_access(user):
+        if request.method in SAFE_METHODS:
+            return access.can_access(obj.customer)
+
+        if obj.created_by_id == user.pk or access.has_unrestricted_access:
             return True
-        return user.team == Team.FIELD and user.role in MANAGER_ROLES and user_can_access_customer(
-            user, obj.customer
-        )
+        return user.team == Team.FIELD and user.role in MANAGER_ROLES and access.can_access(obj.customer)
 
 
 class IsManagerOrSuperuser(BasePermission):
-    message = "Manager access required."
+    message = "Manager or superuser access required."
 
     def has_permission(self, request, view):
         user = request.user

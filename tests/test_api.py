@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Role, Team, User
+from apps.common.exceptions import ErrorCode
 from apps.customers.models import Customer, CustomerAssignment
 from apps.interactions.models import Disposition, Interaction
 
@@ -94,6 +95,12 @@ class PermissionTests(RepaySyncTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 2)
 
+    def test_officer_cannot_bulk_upload_users(self):
+        self.authenticate(self.officer)
+        response = self.client.post("/api/v1/users/bulk-upload/", {}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["error"]["code"], ErrorCode.PERMISSION_DENIED)
+
 
 class LatestDispositionTests(RepaySyncTestCase):
     def test_customer_list_shows_latest_disposition(self):
@@ -149,3 +156,30 @@ class BulkUploadTests(RepaySyncTestCase):
         self.assertEqual(response.status_code, status.HTTP_207_MULTI_STATUS)
         self.assertEqual(len(response.data["created"]), 1)
         self.assertEqual(len(response.data["errors"]), 1)
+        self.assertIn("field", response.data["errors"][0])
+
+
+class ExceptionFormatTests(RepaySyncTestCase):
+    def test_invalid_disposition_returns_structured_error(self):
+        self.authenticate(self.officer)
+        response = self.client.post(
+            "/api/v1/interactions/",
+            {
+                "customer": str(self.customer_assigned.pk),
+                "disposition": "INVALID",
+                "notes": "test",
+                "contacted_at": "2026-05-30T10:00:00Z",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            response.data["error"]["code"],
+            (ErrorCode.INVALID_DISPOSITION, ErrorCode.VALIDATION_ERROR),
+        )
+
+    def test_missing_upload_file_returns_structured_error(self):
+        self.authenticate(self.senior)
+        response = self.client.post("/api/v1/users/bulk-upload/", {}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], ErrorCode.INVALID_FILE)

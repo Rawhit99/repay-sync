@@ -1,14 +1,19 @@
 from rest_framework import serializers
 
-from apps.customers.services.access import user_can_access_customer
+from apps.common.exceptions import CustomerAccessDeniedError, InvalidDispositionError
+from apps.customers.services.access import get_access_service
 from apps.interactions.models import Disposition, Interaction
 
 
 class DispositionValidatorMixin:
     def validate_disposition(self, value):
         if value not in Disposition.values:
-            raise serializers.ValidationError(
-                f"Invalid disposition. Choices: {', '.join(Disposition.values)}"
+            raise InvalidDispositionError(
+                details={
+                    "field": "disposition",
+                    "value": value,
+                    "allowed": list(Disposition.values),
+                }
             )
         return value
 
@@ -37,13 +42,19 @@ class InteractionSerializer(serializers.ModelSerializer):
 
 
 class InteractionCreateSerializer(DispositionValidatorMixin, serializers.ModelSerializer):
+    disposition = serializers.ChoiceField(choices=Disposition.choices)
+
     class Meta:
         model = Interaction
         fields = ("customer", "disposition", "notes", "contacted_at")
 
     def validate(self, attrs):
-        if not user_can_access_customer(self.context["request"].user, attrs["customer"]):
-            raise serializers.ValidationError({"customer": "You do not have access to this customer."})
+        user = self.context["request"].user
+        customer = attrs["customer"]
+        if not get_access_service(user).can_access(customer):
+            raise CustomerAccessDeniedError(
+                details={"customer_id": str(customer.pk), "external_id": customer.external_id}
+            )
         return attrs
 
     def create(self, validated_data):
@@ -52,6 +63,8 @@ class InteractionCreateSerializer(DispositionValidatorMixin, serializers.ModelSe
 
 
 class InteractionUpdateSerializer(DispositionValidatorMixin, serializers.ModelSerializer):
+    disposition = serializers.ChoiceField(choices=Disposition.choices)
+
     class Meta:
         model = Interaction
         fields = ("disposition", "notes", "contacted_at")
