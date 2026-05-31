@@ -1,0 +1,4 @@
+customer_external_id,user_email,disposition,notes,contacted_at
+CUST-001,officer1@example.com,PROMISE_TO_PAY,Customer agreed to pay by Friday,2026-05-28T10:30:00Z
+CUST-002,officer1@example.com,NO_ANSWER,Visited premises no one home,2026-05-27T14:00:00Z
+CUST-003,agent1@example.com,CONTACTED,Spoke with customer confirmed address,2026-05-26T09:15:00Z

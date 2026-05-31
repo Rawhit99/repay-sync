@@ -1,0 +1,5 @@
+email,full_name,team,role,manager_email
+manager1@example.com,John Manager,FIELD,MANAGER,
+officer1@example.com,Jane Officer,FIELD,COLLECTION_OFFICER,manager1@example.com
+officer2@example.com,Bob Officer,FIELD,COLLECTION_OFFICER,manager1@example.com
+agent1@example.com,Alice Agent,CALLING,CALLING_AGENT,
