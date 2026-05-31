@@ -167,15 +167,14 @@ curl -X POST http://localhost:8000/api/v1/interactions/ \
 
 ### Bulk uploads
 
-Sample CSV files are in [`samples/`](samples/).
+Sample CSV files are in [`samples/`](samples/). Run `seed_demo` first, then use these files (they reference demo customers and managers).
 
-**Users** (`POST /users/bulk-upload/`, multipart field `file`):
+**Users** (`POST /users/bulk-upload/`, multipart field `file`, managers/senior managers only):
 
 ```csv
 email,full_name,team,role,manager_email
-officer1@example.com,Jane Officer,FIELD,COLLECTION_OFFICER,manager1@example.com
-manager1@example.com,John Manager,FIELD,MANAGER,
-agent1@example.com,Alice Agent,CALLING,CALLING_AGENT,
+officer3@example.com,Carol Officer,FIELD,COLLECTION_OFFICER,manager1@example.com
+agent2@example.com,Brian Agent,CALLING,CALLING_AGENT,
 ```
 
 Returns generated passwords **once** in the response (not stored in plaintext).
@@ -184,7 +183,8 @@ Returns generated passwords **once** in the response (not stored in plaintext).
 
 ```csv
 customer_external_id,user_email,disposition,notes,contacted_at
-CUST-001,officer1@example.com,PROMISE_TO_PAY,Customer agreed to pay,2026-05-28T10:30:00Z
+CUST-001,officer1@example.com,CONTACTED,Field visit,2026-05-29T11:00:00Z
+CUST-002,officer1@example.com,REFUSED,Customer refused,2026-05-28T09:45:00Z
 ```
 
 Supports partial success: valid rows are committed; invalid rows are reported with row numbers.

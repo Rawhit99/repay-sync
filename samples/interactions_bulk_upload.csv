@@ -1,4 +1,7 @@
 customer_external_id,user_email,disposition,notes,contacted_at
-CUST-001,officer1@example.com,PROMISE_TO_PAY,Customer agreed to pay by Friday,2026-05-28T10:30:00Z
-CUST-002,officer1@example.com,NO_ANSWER,Visited premises no one home,2026-05-27T14:00:00Z
-CUST-003,agent1@example.com,CONTACTED,Spoke with customer confirmed address,2026-05-26T09:15:00Z
+CUST-001,officer1@example.com,CONTACTED,Field visit — spoke with customer at office,2026-05-29T11:00:00Z
+CUST-001,agent1@example.com,CALLBACK_REQUESTED,Customer requested callback after 5pm,2026-05-29T16:30:00Z
+CUST-002,officer1@example.com,REFUSED,Customer refused to discuss payment plan,2026-05-28T09:45:00Z
+CUST-002,officer2@example.com,NO_ANSWER,No one available at registered address,2026-05-27T13:15:00Z
+CUST-003,officer2@example.com,PROMISE_TO_PAY,Agreed to pay partial amount by month end,2026-05-26T14:00:00Z
+CUST-003,agent1@example.com,WRONG_NUMBER,Phone number disconnected,2026-05-25T10:00:00Z
