@@ -25,15 +25,10 @@ class CanModifyInteraction(BasePermission):
     message = "You do not have permission to modify this interaction."
 
     def has_object_permission(self, request, view, obj):
-        user = request.user
-        access = get_access_service(user)
-
+        access = get_access_service(request.user)
         if request.method in SAFE_METHODS:
             return access.can_access(obj.customer)
-
-        if obj.created_by_id == user.pk or access.has_unrestricted_access:
-            return True
-        return user.team == Team.FIELD and user.role in MANAGER_ROLES and access.can_access(obj.customer)
+        return access.can_modify_customer_records(obj.customer)
 
 
 class IsManagerOrSuperuser(BasePermission):

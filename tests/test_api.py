@@ -101,6 +101,24 @@ class PermissionTests(RepaySyncTestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["error"]["code"], ErrorCode.PERMISSION_DENIED)
 
+    def test_officer_can_update_interaction_on_assigned_customer(self):
+        interaction = Interaction.objects.create(
+            customer=self.customer_assigned,
+            created_by=self.agent,
+            disposition=Disposition.CONTACTED,
+            notes="Created by calling agent",
+            contacted_at=timezone.now(),
+        )
+        self.authenticate(self.officer)
+        response = self.client.patch(
+            f"/api/v1/interactions/{interaction.pk}/",
+            {"notes": "Updated by assigned officer"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        interaction.refresh_from_db()
+        self.assertEqual(interaction.notes, "Updated by assigned officer")
+
 
 class LatestDispositionTests(RepaySyncTestCase):
     def test_customer_list_shows_latest_disposition(self):
