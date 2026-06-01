@@ -21,6 +21,28 @@ class CanCreateCustomer(BasePermission):
         return get_access_service(user).has_unrestricted_access or user.role in MANAGER_ROLES
 
 
+class CanAssignCustomer(BasePermission):
+    message = "Only managers or calling team members may assign customers to officers."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if user.is_superuser:
+            return True
+        if get_access_service(user).has_unrestricted_access:
+            return True
+        return user.team == Team.FIELD and user.role in MANAGER_ROLES
+
+    def has_object_permission(self, request, view, obj):
+        access = get_access_service(request.user)
+        if access.has_unrestricted_access:
+            return True
+        if access.can_access(obj):
+            return True
+        if request.user.team == Team.FIELD and request.user.role in MANAGER_ROLES:
+            return not obj.assignments.exists()
+        return False
+
+
 class CanModifyInteraction(BasePermission):
     message = "You do not have permission to modify this interaction."
 

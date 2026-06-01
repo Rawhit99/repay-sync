@@ -161,6 +161,42 @@ class CustomerEndpointTests(BaseTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_manager_can_assign_customer_to_officer(self):
+        unassigned = Customer.objects.create(external_id="CUST-UNASSIGNED", name="Unassigned")
+        self.auth(self.manager)
+        response = self.client.patch(
+            f"/api/v1/customers/{unassigned.pk}/assign/",
+            {"assigned_officer_email": "officer@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["assigned_officer"]["email"], "officer@example.com")
+        self.assertTrue(
+            CustomerAssignment.objects.filter(
+                customer=unassigned, officer=self.officer
+            ).exists()
+        )
+
+    def test_manager_can_reassign_customer(self):
+        self.auth(self.manager)
+        response = self.client.patch(
+            f"/api/v1/customers/{self.customer_b.pk}/assign/",
+            {"assigned_officer_email": "officer@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignment = CustomerAssignment.objects.get(customer=self.customer_b)
+        self.assertEqual(assignment.officer_id, self.officer.pk)
+
+    def test_officer_cannot_assign_customer(self):
+        self.auth(self.officer)
+        response = self.client.patch(
+            f"/api/v1/customers/{self.customer_a.pk}/assign/",
+            {"assigned_officer_email": "other@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_officer_cannot_create_customer(self):
         self.auth(self.officer)
         response = self.client.post(

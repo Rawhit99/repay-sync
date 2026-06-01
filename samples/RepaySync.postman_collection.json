@@ -1,0 +1,683 @@
+{
+  "info": {
+    "_postman_id": "43327d52-861e-4cca-9e6d-24db6344b6fc",
+    "name": "RepaySync API",
+    "description": "Complete RepaySync REST API collection for managing customers, interactions, and audit logs.\n\n## Getting Started\n1. Collection variables are pre-filled for local `seed_demo` (password `demo123456`).\n2. Run **Authentication → Obtain Token** — tokens are saved automatically.\n3. Run **Customers → List Customers** to capture `customerId`, or **Create Customer**.\n4. All other requests use bearer auth from `accessToken`.\n\n## Demo logins (after `python manage.py seed_demo`)\n| Email | Role |\n|---|---|\n| `manager1@example.com` | Field manager — create/assign customers |\n| `senior@example.com` | Senior manager — bulk users, audit logs |\n| `officer1@example.com` | Collection officer — assigned customers only |\n| `agent1@example.com` | Calling agent — all customers |\n\n## Collection Variables\n| Variable | Description |\n|---|---|\n| `baseUrl` | API base (default `http://localhost:8000/api/v1`) |\n| `email` / `password` | Credentials for Obtain Token |\n| `accessToken` / `refreshToken` | JWT tokens (auto-set) |\n| `customerId` | Customer UUID (auto-set from list/create) |\n| `interactionId` | Interaction UUID (auto-set from create) |\n| `auditLogId` | Audit log UUID (auto-set from list) |\n| `officerEmail` | Target officer for Assign Customer |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "32181544"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Obtain Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', json.access);",
+                  "  pm.collectionVariables.set('refreshToken', json.refresh);",
+                  "  pm.test('Access token saved', () => pm.expect(json.access).to.be.a('string').and.not.empty);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/token/",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "token", ""]
+            },
+            "description": "Obtain JWT access and refresh tokens. Uses `email` and `password` collection variables (defaults match `seed_demo`)."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.access) {",
+                  "    pm.collectionVariables.set('accessToken', json.access);",
+                  "    pm.test('New access token saved', () => pm.expect(json.access).to.be.a('string'));",
+                  "  }",
+                  "  if (json.refresh) {",
+                  "    pm.collectionVariables.set('refreshToken', json.refresh);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/token/refresh/",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "token", "refresh", ""]
+            },
+            "description": "Exchange refresh token for a new access token. Updates `accessToken` automatically."
+          },
+          "response": []
+        }
+      ],
+      "description": "JWT authentication. Run **Obtain Token** first."
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Current User (Me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Returns email', () => pm.expect(json.email).to.be.a('string'));",
+                  "  console.log('Logged in as:', json.email, '|', json.role, '|', json.team);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me", ""]
+            },
+            "description": "Profile of the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk Upload Users (CSV)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 201', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.created_count !== undefined) {",
+                  "    console.log('Created:', json.created_count, '| Failed:', json.failed_count || 0);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select samples/users_bulk_upload.csv"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/bulk-upload/",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "bulk-upload", ""]
+            },
+            "description": "Bulk create users (managers/senior only). Attach `samples/users_bulk_upload.csv` from the repo."
+          },
+          "response": []
+        }
+      ],
+      "description": "User profile and bulk user import."
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "List Customers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const results = json.results || [];",
+                  "  pm.test('Paginated response', () => pm.expect(results).to.be.an('array'));",
+                  "  if (results.length) {",
+                  "    pm.collectionVariables.set('customerId', results[0].id);",
+                  "    console.log('customerId set to first result:', results[0].external_id);",
+                  "  } else {",
+                  "    console.warn('No customers in list — run seed_demo or Create Customer');",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/customers/",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", ""]
+            },
+            "description": "Paginated customer list (scoped by role). Saves first `customerId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Customer Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Has external_id', () => pm.expect(json.external_id).to.be.a('string'));",
+                  "  if (json.assigned_officer) {",
+                  "    console.log('Assigned officer:', json.assigned_officer.email);",
+                  "  } else {",
+                  "    console.log('No officer assigned');",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/customers/{{customerId}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", "{{customerId}}", ""]
+            },
+            "description": "Customer detail including `assigned_officer`. Requires `customerId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Customer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.variables.set('newExternalId', 'CUST-NEW-' + ts);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) {",
+                  "    pm.collectionVariables.set('customerId', json.id);",
+                  "    console.log('customerId set:', json.id, '|', json.external_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_id\": \"{{newExternalId}}\",\n  \"name\": \"New Customer Ltd\",\n  \"phone\": \"+1-555-0199\",\n  \"assigned_officer_email\": \"{{officerEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/customers/",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", ""]
+            },
+            "description": "Create customer (managers / calling team). Optional assign at create via `officerEmail`. Saves `customerId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Customer to Officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Officer assigned', () => {",
+                  "    pm.expect(json.assigned_officer).to.be.an('object');",
+                  "    pm.expect(json.assigned_officer.email).to.eql(pm.collectionVariables.get('officerEmail'));",
+                  "  });",
+                  "  if (json.id) {",
+                  "    pm.collectionVariables.set('customerId', json.id);",
+                  "  }",
+                  "  console.log('Assigned to:', json.assigned_officer.email);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assigned_officer_email\": \"{{officerEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/customers/{{customerId}}/assign/",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", "{{customerId}}", "assign", ""]
+            },
+            "description": "Assign or reassign a customer to a collection officer.\n\n**Allowed:** field managers/seniors (subtree officers or unassigned customers), calling agents (any), superuser.\n\n**Denied:** collection officers.\n\nLogin as `manager1@example.com` and set `customerId` + `officerEmail`."
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Interaction History",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const results = json.results || json;",
+                  "  const count = Array.isArray(results) ? results.length : 0;",
+                  "  console.log('Interactions:', count);",
+                  "  if (Array.isArray(results) && results.length && results[0].id) {",
+                  "    pm.collectionVariables.set('interactionId', results[0].id);",
+                  "    console.log('interactionId set from history:', results[0].id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/customers/{{customerId}}/interactions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", "{{customerId}}", "interactions", ""]
+            },
+            "description": "Interaction history for a customer. Saves newest `interactionId` when present."
+          },
+          "response": []
+        }
+      ],
+      "description": "Customer CRUD, assignment, and interaction history."
+    },
+    {
+      "name": "Interactions",
+      "item": [
+        {
+          "name": "Create Interaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) {",
+                  "    pm.collectionVariables.set('interactionId', json.id);",
+                  "    console.log('interactionId set:', json.id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer\": \"{{customerId}}\",\n  \"disposition\": \"PROMISE_TO_PAY\",\n  \"notes\": \"Customer agreed to pay by Friday.\",\n  \"contacted_at\": \"2026-05-30T10:00:00Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/interactions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["interactions", ""]
+            },
+            "description": "Log interaction. Requires `customerId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Interaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Has disposition', () => pm.expect(json.disposition).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/interactions/{{interactionId}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["interactions", "{{interactionId}}", ""]
+            },
+            "description": "Single interaction by `interactionId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Interaction (PATCH)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Notes updated', () => pm.expect(json.notes).to.include('follow-up'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Updated notes after follow-up call.\",\n  \"disposition\": \"CONTACTED\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/interactions/{{interactionId}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["interactions", "{{interactionId}}", ""]
+            },
+            "description": "Partial update. Officers may only patch interactions on assigned customers."
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk Upload Interactions (CSV)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 201', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.created_count !== undefined) {",
+                  "    console.log('Created:', json.created_count, '| Failed:', json.failed_count || 0);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select samples/interactions_bulk_upload.csv"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/interactions/bulk-upload/",
+              "host": ["{{baseUrl}}"],
+              "path": ["interactions", "bulk-upload", ""]
+            },
+            "description": "Bulk import interactions. Attach CSV from `samples/`."
+          },
+          "response": []
+        }
+      ],
+      "description": "Interaction logging and bulk import."
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const results = json.results || [];",
+                  "  if (results.length) {",
+                  "    pm.collectionVariables.set('auditLogId', results[0].id);",
+                  "    console.log('auditLogId set:', results[0].id);",
+                  "  } else {",
+                  "    console.warn('No audit logs yet — call an API first (e.g. List Customers)');",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit-logs/?action=READ&resource_type=customer",
+              "host": ["{{baseUrl}}"],
+              "path": ["audit-logs", ""],
+              "query": [
+                { "key": "action", "value": "READ" },
+                { "key": "resource_type", "value": "customer" }
+              ]
+            },
+            "description": "Audit trail (managers/superuser). Saves first `auditLogId`. Login as `senior@example.com`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Audit Log Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('Has action', () => pm.expect(json.action).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit-logs/{{auditLogId}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["audit-logs", "{{auditLogId}}", ""]
+            },
+            "description": "Single audit entry. Run **List Audit Logs** first."
+          },
+          "response": []
+        }
+      ],
+      "description": "Read-only audit API (manager access)."
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const skipAuth = ['Obtain Token', 'Refresh Token'];",
+          "if (skipAuth.includes(pm.info.requestName)) {",
+          "  return;",
+          "}",
+          "const token = pm.collectionVariables.get('accessToken');",
+          "if (!token) {",
+          "  console.warn('No accessToken — run Authentication → Obtain Token first');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000/api/v1"
+    },
+    {
+      "key": "email",
+      "value": "manager1@example.com"
+    },
+    {
+      "key": "password",
+      "value": "demo123456"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "interactionId",
+      "value": ""
+    },
+    {
+      "key": "auditLogId",
+      "value": ""
+    },
+    {
+      "key": "officerEmail",
+      "value": "officer1@example.com"
+    }
+  ]
+}

@@ -134,7 +134,8 @@ Use the access token: `Authorization: Bearer <access_token>`
 | POST | `/users/bulk-upload/` | Bulk user onboarding (CSV) |
 | GET | `/customers/` | Customer list with latest disposition |
 | GET | `/customers/{id}/` | Customer detail |
-| POST | `/customers/` | Create customer |
+| POST | `/customers/` | Create customer (optional `assigned_officer_email`) |
+| PATCH | `/customers/{id}/assign/` | Assign or reassign customer to a collection officer |
 | GET | `/customers/{id}/interactions/` | Interaction history |
 | POST | `/interactions/` | Log interaction |
 | GET | `/interactions/{id}/` | Interaction detail |
@@ -150,6 +151,17 @@ curl http://localhost:8000/api/v1/customers/ \
 ```
 
 Response includes `latest_disposition` and `latest_contacted_at` per customer.
+
+### Example: Assign customer to officer
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/customers/<customer_uuid>/assign/ \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_officer_email": "officer1@example.com"}'
+```
+
+Managers may assign unassigned customers or reassign customers in their subtree. Calling agents may assign any customer to any collection officer. Officers cannot use this endpoint.
 
 ### Example: Log an interaction
 
@@ -300,13 +312,13 @@ JWT via `djangorestframework-simplejwt` with a custom serializer using `email` i
 | Customer identity | Unique `external_id` business key |
 | Disposition | Fixed enum per interaction; latest = most recent `contacted_at` |
 | Bulk credentials | Returned once in API response, not persisted in plaintext |
-| Customer creation | Calling team and field managers may create customers |
+| Customer creation / assignment | Calling team and field managers may create customers; assign via create or `PATCH .../assign/` |
 | Bulk user upload | Field managers and superusers only |
 
 ## Future Improvements
 
 - WebSocket notifications for real-time interaction updates
 - Email/SMS delivery of bulk-upload credentials
-- Assignment history and reassignment workflow
+- Assignment history (audit trail of past officers per customer)
 - Closure table or materialized path for deeper hierarchies
 - Celery-backed async bulk processing for very large CSV files
