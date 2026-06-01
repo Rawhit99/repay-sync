@@ -321,4 +321,4 @@ JWT via `djangorestframework-simplejwt` with a custom serializer using `email` i
 - Email/SMS delivery of bulk-upload credentials
 - Assignment history (audit trail of past officers per customer)
 - Closure table or materialized path for deeper hierarchies
-- Celery-backed async bulk processing for very large CSV files
+- Celery-backed async bulk processing for very large CSV files/ Airflow for background Jobs.
